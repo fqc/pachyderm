@@ -31,6 +31,19 @@ func (n *NodeProto) nodetype() nodetype {
 	}
 }
 
+func (n *OpenNode) nodetype() nodetype {
+	switch {
+	case n == nil:
+		return none
+	case n.DirNode != nil:
+		return directory
+	case n.FileNode != nil:
+		return file
+	default:
+		return unrecognized
+	}
+}
+
 func (n nodetype) tostring() string {
 	switch n {
 	case none:
@@ -232,6 +245,18 @@ func (h *hashtree) removeFromMap(path string) error {
 	return nil
 }
 
+func (h *hashtree) Open() OpenHashTree {
+	return h
+}
+
+func (h *hashtree) Finish() (HashTree, error) {
+	err := h.canonicalize("")
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
 // PutFile inserts a file into the hierarchy
 func (h *hashtree) PutFile(path string, blockRefs []*pfs.BlockRef) error {
 	path = clean(path)
@@ -378,6 +403,18 @@ func (h *hashtree) Get(path string) (*NodeProto, error) {
 	return node, nil
 }
 
+func (h *hashtree) GetOpen(path string) (*OpenNode, error) {
+	np, err := h.Get(path)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenNode{
+		Name:     np.Name,
+		FileNode: np.FileNode,
+		DirNode:  np.DirNode,
+	}, nil
+}
+
 // List returns the NodeProtos corresponding to the files and directories under
 // 'path'
 func (h *hashtree) List(path string) ([]*NodeProto, error) {
@@ -458,14 +495,10 @@ func (h *hashtree) mergeNode(path string, srcs []HashTree) error {
 	//   and we'd have an O(n^2) algorithm; too slow when merging 100k trees)
 	childrenToTrees := make(map[string][]HashTree)
 	// Amount of data being added to node at 'path' in 'h'
-	sizeDelta := int64(0)
 	for _, src := range srcs {
 		n, err := src.Get(path)
 		if err != nil && Code(err) != PathNotFound {
 			return err
-		}
-		if n.nodetype() == none {
-			continue
 		}
 		if pathtype == none {
 			pathtype = n.nodetype()
@@ -499,7 +532,6 @@ func (h *hashtree) mergeNode(path string, srcs []HashTree) error {
 			// Append new blocks
 			destNode.FileNode.BlockRefs = append(destNode.FileNode.BlockRefs,
 				n.FileNode.BlockRefs...)
-			sizeDelta += n.SubtreeSize
 		default:
 			return errorf(Internal, "malformed node at \"%s\" in source "+
 				"hashtree is neither a file nor a directory", path)

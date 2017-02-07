@@ -38,7 +38,8 @@ func i(ss ...string) []interface{} {
 	return result
 }
 
-func clone(h HashTree) HashTree {
+func clone(hTmp interface{}) HashTree {
+	h := hTmp.(*hashtree)
 	bb, err := h.Marshal()
 	if err != nil {
 		panic("could not clone HashTree: " + err.Error())
@@ -50,7 +51,7 @@ func clone(h HashTree) HashTree {
 	return h2
 }
 
-func tostring(htmp HashTree) string {
+func tostring(htmp interface{}) string {
 	h := htmp.(*hashtree)
 	bufsize := len(h.fs) * 25
 	buf := bytes.NewBuffer(make([]byte, 0, bufsize))
@@ -60,7 +61,7 @@ func tostring(htmp HashTree) string {
 	return buf.String()
 }
 
-func equals(ltmp, rtmp HashTree) bool {
+func equals(ltmp, rtmp interface{}) bool {
 	l, r := ltmp.(*hashtree), rtmp.(*hashtree)
 	if len(l.fs) != len(r.fs) {
 		return false
@@ -91,7 +92,7 @@ func requireSame(t *testing.T, ltmp, rtmp HashTree) {
 // etc. This is separate from 'requireSame()' because often we want to test that
 // an operation is invariant on several slightly different trees, and with this
 // we only have to define 'op' once.
-func requireOperationInvariant(t *testing.T, h HashTree, op func()) {
+func requireOperationInvariant(t *testing.T, h OpenHashTree, op func()) {
 	preop := clone(h)
 	// perform operation on 'h'
 	op()
@@ -184,7 +185,7 @@ func TestPutDirBasic(t *testing.T) {
 }
 
 func TestPutError(t *testing.T) {
-	h := NewHashTree()
+	h := NewHashTree().Open()
 	err := h.PutFile("/foo", br(`block{hash:"20c27"}`))
 	require.NoError(t, err)
 
@@ -192,7 +193,7 @@ func TestPutError(t *testing.T) {
 	requireOperationInvariant(t, h, func() {
 		err := h.PutFile("/foo/bar", br(`block{hash:"8e02c"}`))
 		require.YesError(t, err)
-		node, err := h.Get("/foo/bar")
+		node, err := h.GetOpen("/foo/bar")
 		require.YesError(t, err)
 		require.Equal(t, PathNotFound, Code(err))
 		require.Nil(t, node)
@@ -202,7 +203,7 @@ func TestPutError(t *testing.T) {
 	requireOperationInvariant(t, h, func() {
 		err := h.PutDir("/foo/bar")
 		require.YesError(t, err)
-		node, err := h.Get("/foo/bar")
+		node, err := h.GetOpen("/foo/bar")
 		require.YesError(t, err)
 		require.Equal(t, PathNotFound, Code(err))
 		require.Nil(t, node)
@@ -512,6 +513,8 @@ func TestErrorCode(t *testing.T) {
 	h.PutFile("/foo", br(`block{hash:"20c27"}`))
 	err = h.PutFile("/foo/bar", br(`block{hash:"9d432"}`))
 	require.Equal(t, PathConflict, Code(err))
+
+	// TODO(msteffen): Get PathConflict form mergefile. Also put(/foo/bar), put(/foo). Also DeleteFile(x) where x doesn't exist
 
 	_, err = h.Glob("/*\\")
 	require.Equal(t, MalformedGlob, Code(err))

@@ -34,7 +34,7 @@ func BenchmarkPutFile(b *testing.B) {
 	// Add 'cnt' files
 	cnt := int(1e5)
 	r := rand.New(rand.NewSource(0))
-	h := NewHashTree()
+	h := NewHashTree().Open()
 	for i := 0; i < cnt; i++ {
 		h.PutFile(fmt.Sprintf("/foo/shard-%05d", i),
 			br(fmt.Sprintf(`block{hash:"%x"}`, r.Uint32())))
@@ -56,19 +56,19 @@ func BenchmarkPutFile(b *testing.B) {
 func BenchmarkMerge(b *testing.B) {
 	// Merge 'cnt' trees, each with 1 file (simulating a job)
 	cnt := int(1e5)
-	trees := make([]HashTree, cnt)
+	trees := make([]OpenHashTree, cnt)
 	r := rand.New(rand.NewSource(0))
 	for i := 0; i < cnt; i++ {
-		trees[i] = NewHashTree()
+		trees[i] = NewHashTree().Open()
 		trees[i].PutFile(fmt.Sprintf("/foo/shard-%05d", i),
 			br(fmt.Sprintf(`block{hash:"%x"}`, r.Uint32())))
 	}
 
-	h := NewHashTree()
+	h := NewHashTree().Open()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		h.Merge(trees)
-		h = NewHashTree()
+		h = NewHashTree().Open()
 	}
 }
 
@@ -88,14 +88,14 @@ func BenchmarkClone(b *testing.B) {
 	// Create a tree with 'cnt' files
 	cnt := int(1e4)
 	r := rand.New(rand.NewSource(0))
-	srcTs := make([]HashTree, cnt)
+	trees := make([]OpenHashTree, cnt)
 	for i := 0; i < cnt; i++ {
-		srcTs[i] = NewHashTree()
-		srcTs[i].PutFile(fmt.Sprintf("/foo/shard-%05d", i),
+		trees[i] = NewHashTree().Open()
+		trees[i].PutFile(fmt.Sprintf("/foo/shard-%05d", i),
 			br(fmt.Sprintf(`block{hash:"%x"}`, r.Uint32())))
 	}
-	h := NewHashTree()
-	h.Merge(srcTs)
+	h := NewHashTree().Open()
+	h.Merge(trees)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -118,14 +118,18 @@ func BenchmarkDelete(b *testing.B) {
 	// Create a tree with 'cnt' files
 	cnt := int(1e5)
 	r := rand.New(rand.NewSource(0))
-	srcTs := make([]HashTree, cnt)
+	trees := make([]OpenHashTree, cnt)
 	for i := 0; i < cnt; i++ {
-		srcTs[i] = NewHashTree()
-		srcTs[i].PutFile(fmt.Sprintf("/foo/shard-%05d", i),
+		trees[i] = NewHashTree().Open()
+		trees[i].PutFile(fmt.Sprintf("/foo/shard-%05d", i),
 			br(fmt.Sprintf(`block{hash:"%x"}`, r.Uint32())))
 	}
-	h := NewHashTree()
-	h.Merge(srcTs)
+	hTmp := NewHashTree().Open()
+	hTmp.Merge(trees)
+	h, err := hTmp.Finish()
+	if err != nil {
+		panic(err)
+	}
 	srcBytes, err := h.Marshal()
 	if err != nil {
 		b.Fatal("could not marshal hashtree in BenchmarkDelete")
@@ -137,7 +141,6 @@ func BenchmarkDelete(b *testing.B) {
 		if err != nil {
 			b.Fatal("could not marshal hashtree in BenchmarkDelete")
 		}
-
-		h2.DeleteFile("/foo")
+		h2.Open().DeleteFile("/foo")
 	}
 }

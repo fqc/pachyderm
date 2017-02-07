@@ -48,32 +48,62 @@ const (
 // HashTree is the signature of a hash tree provided by this library. To get a
 // new hash tree, see hashtree.NewHashTree().
 type HashTree interface {
-	// PutFile appends data to a file (and creates the file if it doesn't exist)
-	PutFile(path string, blockRefs []*pfs.BlockRef) error
+	// Open converts this to an OpenHashTree, which can be modified.
+	Open() OpenHashTree
 
-	// PutDir creates a directory (or does nothing if one exists)
-	PutDir(path string) error
-
-	// DeleteFile deletes a regular file or directory (along with its children).
-	DeleteFile(path string) error
-
-	// Get retrieves the contents of a regular file
+	// Get retrieves the contents of a regular file.
 	Get(path string) (*NodeProto, error)
 
 	// List retrieves the list of files and subdirectories of the directory at
 	// 'path'.
 	List(path string) ([]*NodeProto, error)
 
-	// Glob returns a list of files and directories that match 'pattern'
+	// Glob returns a list of files and directories that match 'pattern'.
 	Glob(pattern string) ([]*NodeProto, error)
 
-	// Merge adds all of the files and directories in each tree in 'trees' into
-	// this tree. The effect is equivalent to calling this.PutFile with every
-	// file in every tree in 'tree', though the performance may be slightly
-	// better.
-	Merge(trees []HashTree) error
-
-	// Marshal serializes a HashTree so that it can be persisted (also see
-	// Unmarshal())
+	// Marshal serializes a HashTree so that it can be persisted. Also see
+	// Unmarshal().
 	Marshal() ([]byte, error)
+}
+
+// OpenNode is similar to NodeProto, except that it doesn't include the Hash or
+// Size fields (which may be inaccurate in an OpenHashTree)
+type OpenNode struct {
+	Name string
+
+	FileNode *FileNodeProto
+	DirNode  *DirectoryNodeProto
+}
+
+// OpenHashTree is like HashTree, except that it can be modified. Once an
+// OpenHashTree is Finish()ed, the hash and size stored with each node will be
+// updated (until then, the hashes and sizes stored in an OpenHashTree will be
+// stale, which is why this interface has no functions for reading data in it).
+// We separated HashTree and OpenHashTree, instead of re-hashing a HashTree
+// after each operation for performance; re-hashing can consume a lot of time
+// if e.g. you need to PutFile 100K files in a row and re-hash after each one.
+type OpenHashTree interface {
+	// Get retrieves the contents of a regular file.
+	GetOpen(path string) (*OpenNode, error)
+
+	// PutFile appends data to a file (and creates the file if it doesn't exist).
+	// This invalidates the hashes in the tree. Calling this marks the HashTree
+	// unfinished (see Finish() and IsFinished()).
+	PutFile(path string, blockRefs []*pfs.BlockRef) error
+
+	// PutDir creates a directory (or does nothing if one exists). Calling this
+	// marks the HashTree unfinished (see Finish() and IsFinished()).
+	PutDir(path string) error
+
+	// DeleteFile deletes a regular file or directory (along with its children).
+	// Calling this marks the HashTree unfinished (see Finish() and
+	// IsFinished()).
+	DeleteFile(path string) error
+
+	// Merge adds all of the files and directories in each tree in 'trees' into
+	// this tree.
+	Merge(trees []OpenHashTree) error
+
+	// Finish updates all of the hashes and sizes of the nodes in the HashTree.
+	Finish() (HashTree, error)
 }
